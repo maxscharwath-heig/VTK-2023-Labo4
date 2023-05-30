@@ -43,8 +43,8 @@ converted_coords = []
 
 for coord in coords_rt90:
     # Convert coordinates from RT90 to WGS84
-    lon, lat = transformer.transform(coord[0], coord[1])
-    converted_coords.append((lon, lat))
+    lon, lat = transformer.transform(coord[1], coord[0])
+    converted_coords.append((lat, lon))
 
 # Print the converted coordinates
 for coord in converted_coords:
