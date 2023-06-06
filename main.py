@@ -70,7 +70,6 @@ def process():
     return polydata
 
 
-
 def grid_to_polydata(structured_grid):
     surf_filter = vtk.vtkDataSetSurfaceFilter()
     surf_filter.SetInputData(structured_grid)
