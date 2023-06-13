@@ -108,7 +108,7 @@ def extract_glider_data(filename):
     :return: An array with the list x y z of each measure.
     """
     with open(filename) as file:
-        size = file.readline()
+        file.readline()
         # Array that stores each position read.
         coordinates = []
 
@@ -256,7 +256,7 @@ def make_glider_path_actor():
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
 
-    return actor
+    return actor, coords
 
 
 def make_altitude_text_actor():
@@ -298,19 +298,82 @@ def make_altitude_strip(map_actor):
     return altitude_strip_actor, tube_filter, sphere
 
 
+def load_glider_model():
+    reader = vtk.vtkOBJReader()
+    reader.SetFileName("plane.obj")
+    reader.Update()
+
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(reader.GetOutputPort())
+
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+
+    return actor
+
+class GliderAnimator:
+    def __init__(self, glider_model, path):
+        self.glider_model = glider_model
+        self.path = path
+        self.path_position = 1  # Index of current position on the path, need to be float for interpolation
+
+    def move_glider(self, obj, event):
+        # If we've reached the end of the path, reset to the beginning
+        if self.path_position >= len(self.path):
+            self.path_position = 1
+
+        # Get the next position and altitude from the path
+        index = int(self.path_position)
+        x1, y1, altitude1 = self.path[index - 1]
+        x2, y2, altitude2 = self.path[index]
+        altitude = altitude1 + (altitude2 - altitude1) * (self.path_position - index)
+        lat, long = rt90_to_wgs84.transform(
+            y1 + (y2 - y1) * (self.path_position - index),
+            x1 + (x2 - x1) * (self.path_position - index)
+        )
+
+        # Compute the position in VTK coordinates
+        x, y, z = to_vtk_point(altitude, lat, long)
+
+        # Move the glider model to the new position
+        self.glider_model.SetPosition(x, y, z)
+        z_angle = math.atan2(y2 - y1, x2 - x1)
+        self.glider_model.SetOrientation(0, math.degrees(z_angle) + 90, 0)
+
+
+
+        # Increment the path position for the next move
+        self.path_position += 0.5
+
+        # Render the updated scene
+        obj.GetRenderWindow().Render()
+
+
 def main():
     colors = vtkNamedColors()
     map_actor = create_map_actor()
-    glider_path_actor = make_glider_path_actor()
+    terrain_actor = create_map_actor()
+    glider_path_actor, glider_path = make_glider_path_actor()
     altitude_text_actor = make_altitude_text_actor()
     altitude_strip_actor, tube_filter, sphere = make_altitude_strip(
         map_actor)
+    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(terrain_actor)
+    glider_actor = load_glider_model()
+
+    # Set the initial position of the glider
+    x, y, altitude = glider_path[0]
+    lat, long = rt90_to_wgs84.transform(y, x)
+    x, y, z = to_vtk_point(altitude, lat, long)
+    glider_actor.SetPosition(x, y, z)
+    glider_actor.SetScale(4, 4, 4)
 
     renderer = vtk.vtkRenderer()
     renderer.AddActor(map_actor)
     renderer.AddActor(glider_path_actor)
     renderer.AddActor(altitude_text_actor)
     renderer.SetBackground(colors.GetColor3d("Wheat"))
+    renderer.AddActor(glider_actor)
+    renderer.SetBackground(colors.GetColor3d("White"))
 
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
@@ -360,6 +423,16 @@ def main():
         obj.OnMouseMove()
 
     style.AddObserver("MouseMoveEvent", update_altitude_text)
+
+    # Create a GliderAnimator object
+    glider_animator = GliderAnimator(glider_actor, glider_path)
+
+    # Add the glider animator as an observer to the interactor
+    render_window_interactor.AddObserver("TimerEvent", glider_animator.move_glider)
+    render_window_interactor.CreateRepeatingTimer(33)
+
+    # Start the render window interactor
+    render_window_interactor.Start()
 
     render_window_interactor.Initialize()
     render_window.Render()
