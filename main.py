@@ -290,11 +290,34 @@ def make_altitude_text_actor():
     return altitude_actor
 
 
+def make_altitude_strip(terrain_actor):
+    sphere = vtk.vtkSphere()
+    cutter = vtk.vtkCutter()
+    cutter.SetCutFunction(sphere)
+    cutter.SetInputData(terrain_actor.GetMapper().GetInput())
+
+    stripper = vtk.vtkStripper()
+    stripper.SetInputConnection(cutter.GetOutputPort())
+
+    tube_filter = vtk.vtkTubeFilter()
+    tube_filter.SetInputConnection(stripper.GetOutputPort())
+    tube_filter.SetRadius(40)
+
+    altitude_strip_mapper = vtk.vtkDataSetMapper()
+    altitude_strip_mapper.SetInputConnection(tube_filter.GetOutputPort())
+
+    altitude_strip_actor = vtk.vtkActor()
+    altitude_strip_actor.SetMapper(altitude_strip_mapper)
+
+    return altitude_strip_actor, tube_filter, sphere
+
+
 def main():
     colors = vtkNamedColors()
     terrain_actor = create_map_actor()
     glider_path_actor = make_glider_path_actor()
     altitude_text_actor = make_altitude_text_actor()
+    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(terrain_actor)
 
     renderer = vtk.vtkRenderer()
     renderer.AddActor(terrain_actor)
@@ -318,6 +341,8 @@ def main():
     picker.PickFromListOn()
     picker.AddPickList(terrain_actor)
 
+    renderer.AddActor(altitude_strip_actor)
+
     def update_altitude_text(obj, event):
         click_pos = obj.GetInteractor().GetEventPosition()
 
@@ -334,6 +359,12 @@ def main():
 
             # Update the text actor
             altitude_text_actor.SetInput(f"Altitude: {altitude}m")
+
+            # Update the sphere position and radius
+            sphere.SetRadius(altitude + c.EARTH_RADIUS)
+
+            # Update the altitude strip
+            tube_filter.Update()
 
             # Render the updated text
             render_window.Render()
