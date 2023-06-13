@@ -311,11 +311,13 @@ def load_glider_model():
 
     return actor
 
+
 class GliderAnimator:
     def __init__(self, glider_model, path):
         self.glider_model = glider_model
         self.path = path
-        self.path_position = 1  # Index of current position on the path, need to be float for interpolation
+        # Index of current position on the path, need to be float for interpolation
+        self.path_position = 1
 
     def move_glider(self, obj, event):
         # If we've reached the end of the path, reset to the beginning
@@ -326,7 +328,8 @@ class GliderAnimator:
         index = int(self.path_position)
         x1, y1, altitude1 = self.path[index - 1]
         x2, y2, altitude2 = self.path[index]
-        altitude = altitude1 + (altitude2 - altitude1) * (self.path_position - index)
+        altitude = altitude1 + (altitude2 - altitude1) * \
+            (self.path_position - index)
         lat, long = rt90_to_wgs84.transform(
             y1 + (y2 - y1) * (self.path_position - index),
             x1 + (x2 - x1) * (self.path_position - index)
@@ -339,8 +342,6 @@ class GliderAnimator:
         self.glider_model.SetPosition(x, y, z)
         z_angle = math.atan2(y2 - y1, x2 - x1)
         self.glider_model.SetOrientation(0, math.degrees(z_angle) + 90, 0)
-
-
 
         # Increment the path position for the next move
         self.path_position += 0.5
@@ -357,7 +358,8 @@ def main():
     altitude_text_actor = make_altitude_text_actor()
     altitude_strip_actor, tube_filter, sphere = make_altitude_strip(
         map_actor)
-    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(terrain_actor)
+    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(
+        terrain_actor)
     glider_actor = load_glider_model()
 
     # Set the initial position of the glider
@@ -377,7 +379,7 @@ def main():
 
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
-    render_window.SetSize(800, 800)
+    render_window.SetSize(1000, 1000)
 
     render_window_interactor = vtk.vtkRenderWindowInteractor()
     render_window_interactor.SetRenderWindow(render_window)
@@ -428,14 +430,18 @@ def main():
     glider_animator = GliderAnimator(glider_actor, glider_path)
 
     # Add the glider animator as an observer to the interactor
-    render_window_interactor.AddObserver("TimerEvent", glider_animator.move_glider)
+    render_window_interactor.AddObserver(
+        "TimerEvent", glider_animator.move_glider)
     render_window_interactor.CreateRepeatingTimer(33)
 
-    # Start the render window interactor
-    render_window_interactor.Start()
-
+    # Center the window on the screen & start
+    screen_size = render_window.GetScreenSize()
+    window_size = render_window.GetSize()
+    render_window.SetPosition(
+        int((screen_size[0] - window_size[0]) / 2),
+        int((screen_size[1] - window_size[1]) / 2)
+    )
     render_window_interactor.Initialize()
-    render_window.Render()
     render_window_interactor.Start()
 
 
