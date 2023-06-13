@@ -8,11 +8,10 @@ from vtkmodules.vtkCommonColor import vtkNamedColors
 
 import constants as c
 
-rt90 = pyproj.CRS("EPSG:3021")  # RT90
-wgs84 = pyproj.CRS("EPSG:4326")  # LatLon with WGS84 datum
-ecef = pyproj.CRS("EPSG:4978")  # ECEF coordinates
-rt90_to_wgs84 = Transformer.from_crs(rt90, wgs84)
-wgs84_to_ecef = Transformer.from_crs(wgs84, ecef)
+rt90_to_wgs84 = Transformer.from_crs(
+    pyproj.CRS("EPSG:3021"), pyproj.CRS("EPSG:4326"))
+wgs84_to_ecef = Transformer.from_crs(
+    pyproj.CRS("EPSG:4326"), pyproj.CRS("EPSG:4978"))
 
 
 def to_vtk_point(altitude, latitude, longitude):
@@ -34,7 +33,8 @@ def quadrilateral_interpolation_factors(bounds):
     Calculate the factors for quadrilateral interpolation.
     """
     interpolation_matrix = np.array(
-        [[1, 0, 0, 0], [-1, 1, 0, 0], [-1, 0, 0, 1], [1, -1, 1, -1]])
+        [[1, 0, 0, 0], [-1, 1, 0, 0], [-1, 0, 0, 1], [1, -1, 1, -1]]
+    )
 
     # Matrix multiplication to get alphas and betas for quadrilateral interpolation
     interpolation_alphas = interpolation_matrix.dot(bounds[:, 0])
@@ -50,7 +50,7 @@ def quadrilateral_interpolation(x, y, a, b):
     aa = a[3] * b[2] - a[2] * b[3]
 
     bb = a[3] * b[0] - a[0] * b[3] + a[1] * \
-         b[2] - a[2] * b[1] + x * b[3] - y * a[3]
+        b[2] - a[2] * b[1] + x * b[3] - y * a[3]
 
     cc = a[1] * b[0] - a[0] * b[1] + x * b[1] - y * a[1]
 
@@ -74,7 +74,7 @@ def bounding_box(coords):
     return smallest_latitude, biggest_latitude, smallest_longitude, biggest_longitude
 
 
-def extract_terrain_data():
+def extract_map_data():
     altitudes = np.fromfile(
         c.BIL_FILENAME, dtype=np.int16).reshape((c.GRID_SIZE, c.GRID_SIZE))
 
@@ -86,20 +86,15 @@ def extract_terrain_data():
 
 def clipping_plane(wgs84_1, wgs84_2):
     """
-    Compute a plane that passes through (0,0,0), wgs84_1 and wgs84_2.
-    :param wgs84_1: WGS84 coordinate number 1 to pass through.
-    :param wgs84_2: WGS84 coordinate number 2 to pass through.
-    :return: Return the resulting vtkPlane.
+    Create a clipping plane from two points in WGS84 and origin.
     """
 
     # Get x,y,z positions of the two additional points.
-    p1 = np.array(to_vtk_point(10, wgs84_1[0], wgs84_1[1]))
-    p2 = np.array(to_vtk_point(10, wgs84_2[0], wgs84_2[1]))
+    p1 = np.array(to_vtk_point(0, wgs84_1[0], wgs84_1[1]))
+    p2 = np.array(to_vtk_point(0, wgs84_2[0], wgs84_2[1]))
 
-    # Compute normal for plane orientation
+    # Compute normal for plane orientation and create plane.
     n = np.cross(p1, p2)
-
-    # Plane creation
     plane = vtk.vtkPlane()
     plane.SetNormal(n)
 
@@ -113,8 +108,7 @@ def extract_glider_data(filename):
     :return: An array with the list x y z of each measure.
     """
     with open(filename) as file:
-        file.readline()  # First line is not useful for us.
-
+        size = file.readline()
         # Array that stores each position read.
         coordinates = []
 
@@ -122,14 +116,15 @@ def extract_glider_data(filename):
         for line in file.readlines():
             values = line.split()
             coordinates.append(
-                (int(values[1]), int(values[2]), float(values[3])))
+                (int(values[1]), int(values[2]), float(values[3]))
+            )
 
     return coordinates
 
 
 def create_map_actor():
     wsg84_corners = np.array([rt90_to_wgs84.transform(x, y)
-                              for y, x in c.BOUNDING_COORDS])
+                             for y, x in c.BOUNDING_COORDS])
 
     alphas, betas = quadrilateral_interpolation_factors(wsg84_corners)
 
@@ -137,7 +132,7 @@ def create_map_actor():
     smallest_latitude, biggest_latitude, smallest_longitude, biggest_longitude = bounding_box(
         wsg84_corners)
 
-    altitudes, latitudes, longitudes = extract_terrain_data()
+    altitudes, latitudes, longitudes = extract_map_data()
 
     points = vtk.vtkPoints()
     altitude_points = vtk.vtkIntArray()
@@ -158,14 +153,16 @@ def create_map_actor():
     grid_lon_max = max([lon for lat, lon in bounding_coords_grid])
 
     for i, row in enumerate(altitudes):
+        # Check if the latitude of the row is inside the bounding box
         if smallest_latitude <= latitudes[i] <= biggest_latitude:
-            # For each longitude, is it in the bounding box of the area to display?
             for j, altitude in enumerate(row):
+                # Check if the longitude of the column is inside the bounding box
                 if smallest_longitude <= longitudes[j] <= biggest_longitude:
-                    # At this point, the lat, long pair is inside the bounding box of the area to display,
-                    # so we add it to the structured grid.
-                    points.InsertNextPoint(to_vtk_point(
-                        altitude, latitudes[i], longitudes[j]))
+
+                    points.InsertNextPoint(
+                        to_vtk_point(
+                            altitude, latitudes[i], longitudes[j])
+                    )
 
                     altitude_points.InsertNextValue(altitude)
 
@@ -177,87 +174,76 @@ def create_map_actor():
                     texture_coordinates.InsertNextTuple((l, m))
 
     # Preparing structured grid to display the area
-    terrain_grid = vtk.vtkStructuredGrid()
-    terrain_grid.SetDimensions(
+    map_grid = vtk.vtkStructuredGrid()
+    map_grid.SetDimensions(
         grid_lon_max - grid_lon_min - 1, grid_lat_max - grid_lat_min, 1)
-    terrain_grid.SetPoints(points)
-    terrain_grid.GetPointData().SetScalars(altitude_points)
-    terrain_grid.GetPointData().SetTCoords(texture_coordinates)
+    map_grid.SetPoints(points)
+    map_grid.GetPointData().SetScalars(altitude_points)
+    map_grid.GetPointData().SetTCoords(texture_coordinates)
 
-    # Cut the terrain with a plane
-    terrain_implicit_boolean = vtk.vtkImplicitBoolean()
-    terrain_implicit_boolean.SetOperationTypeToUnion()
-    terrain_implicit_boolean.AddFunction(
-        clipping_plane(wsg84_corners[0], wsg84_corners[1]))
-    terrain_implicit_boolean.AddFunction(
-        clipping_plane(wsg84_corners[1], wsg84_corners[2]))
-    terrain_implicit_boolean.AddFunction(
-        clipping_plane(wsg84_corners[2], wsg84_corners[3]))
-    terrain_implicit_boolean.AddFunction(
-        clipping_plane(wsg84_corners[3], wsg84_corners[0]))
+    # Cut the map with planes to fit the area
+    map_implicit = vtk.vtkImplicitBoolean()
+    map_implicit.SetOperationTypeToUnion()
 
-    # Clipped terrain
-    terrain_clipped = vtk.vtkClipDataSet()
-    terrain_clipped.SetInputData(terrain_grid)
-    terrain_clipped.SetClipFunction(terrain_implicit_boolean)
-    terrain_clipped.Update()
+    lenCorners = len(wsg84_corners)
+    for i in range(lenCorners):
+        map_implicit.AddFunction(
+            clipping_plane(wsg84_corners[i], wsg84_corners[(i + 1) % lenCorners]))
 
-    terrain_mapper = vtk.vtkDataSetMapper()
-    terrain_mapper.SetInputConnection(terrain_clipped.GetOutputPort())
-    terrain_mapper.ScalarVisibilityOff()
+    # Clipped map
+    map_clipped = vtk.vtkClipDataSet()
+    map_clipped.SetInputData(map_grid)
+    map_clipped.SetClipFunction(map_implicit)
+    map_clipped.Update()
 
-    # Loading texture
+    map_mapper = vtk.vtkDataSetMapper()
+    map_mapper.SetInputConnection(map_clipped.GetOutputPort())
+    map_mapper.ScalarVisibilityOff()
+
+    # Loading and mapping texture
     jpeg_reader = vtk.vtkJPEGReader()
     jpeg_reader.SetFileName("glider_map.jpg")
-    terrain_texture = vtk.vtkTexture()
-    terrain_texture.SetInputConnection(jpeg_reader.GetOutputPort())
+    map_texture = vtk.vtkTexture()
+    map_texture.SetInputConnection(jpeg_reader.GetOutputPort())
 
-    # Terrain actor
-    terrain_actor = vtk.vtkActor()
-    terrain_actor.SetMapper(terrain_mapper)
-    terrain_actor.SetTexture(terrain_texture)
+    # map actor
+    map_actor = vtk.vtkActor()
+    map_actor.SetMapper(map_mapper)
+    map_actor.SetTexture(map_texture)
 
-    return terrain_actor
+    return map_actor
 
 
 def make_glider_path_actor():
-    """
-    This function creates the glider gps path actor
-    :return: Return the corresponding vtkActor
-    """
-
-    # Retrieving coordinates from file.
+    # Retrieving coordinates from file
     coords = extract_glider_data("vtkgps.txt")
 
-    # Points that will be used to form the "tube".
+    # Coordinates of the glider path
     path_points = vtk.vtkPoints()
 
-    # Array to store the altitude delta between points.
-    # That allows to color the "tube" accordingly to the difference with the
-    # previous point.
+    # Difference of altitude between two measures (for coloring)
     delta_altitudes = vtk.vtkFloatArray()
 
-    last_elev = coords[0][2]
+    previous_altitude = coords[0][2]  # First altitude of the path
 
-    for i, (x, y, altitude) in enumerate(coords):
-        lat, long = rt90_to_wgs84.transform(y, x)  # Convert from rt90 to wsg84.
+    for (x, y, altitude) in coords:
+        latitude, longitude = rt90_to_wgs84.transform(y, x)
 
-        # Insert point position.
-        path_points.InsertNextPoint(to_vtk_point(altitude, lat, long))
-        # Insert point altitude delta
-        delta_altitudes.InsertNextValue(last_elev - altitude)
+        # Insert glider path point
+        path_points.InsertNextPoint(
+            to_vtk_point(altitude, latitude, longitude))
 
-        last_elev = altitude
+        # Insert difference of altitude
+        delta_altitudes.InsertNextValue(previous_altitude - altitude)
+        previous_altitude = altitude
 
-    # Making lines out of the measures
+    # Create lines between each point
     path_lines = vtk.vtkLineSource()
     path_lines.SetPoints(path_points)
     path_lines.Update()
-
-    # Setting altitudes.
     path_lines.GetOutput().GetPointData().SetScalars(delta_altitudes)
 
-    # Making the lines thicker with tube filter.
+    # Creating tubes around the lines
     tube = vtk.vtkTubeFilter()
     tube.SetRadius(25)
     tube.SetInputConnection(path_lines.GetOutputPort())
@@ -282,19 +268,19 @@ def make_altitude_text_actor():
     altitude_actor = vtk.vtkTextActor()
     altitude_actor.GetTextProperty().SetColor(0, 0, 0)
     altitude_actor.GetTextProperty().SetBackgroundColor(1, 1, 1)
-    altitude_actor.GetTextProperty().SetBackgroundOpacity(1)
-    altitude_actor.SetInput("Yolo")
-    altitude_actor.GetTextProperty().SetFontSize(20)
+    altitude_actor.GetTextProperty().SetBackgroundOpacity(0.7)
+    altitude_actor.SetInput("Altitude: -")
+    altitude_actor.GetTextProperty().SetFontSize(40)
     altitude_actor.SetPosition((40, 40))
 
     return altitude_actor
 
 
-def make_altitude_strip(terrain_actor):
+def make_altitude_strip(map_actor):
     sphere = vtk.vtkSphere()
     cutter = vtk.vtkCutter()
     cutter.SetCutFunction(sphere)
-    cutter.SetInputData(terrain_actor.GetMapper().GetInput())
+    cutter.SetInputData(map_actor.GetMapper().GetInput())
 
     stripper = vtk.vtkStripper()
     stripper.SetInputConnection(cutter.GetOutputPort())
@@ -314,16 +300,17 @@ def make_altitude_strip(terrain_actor):
 
 def main():
     colors = vtkNamedColors()
-    terrain_actor = create_map_actor()
+    map_actor = create_map_actor()
     glider_path_actor = make_glider_path_actor()
     altitude_text_actor = make_altitude_text_actor()
-    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(terrain_actor)
+    altitude_strip_actor, tube_filter, sphere = make_altitude_strip(
+        map_actor)
 
     renderer = vtk.vtkRenderer()
-    renderer.AddActor(terrain_actor)
+    renderer.AddActor(map_actor)
     renderer.AddActor(glider_path_actor)
     renderer.AddActor(altitude_text_actor)
-    renderer.SetBackground(colors.GetColor3d("White"))
+    renderer.SetBackground(colors.GetColor3d("Wheat"))
 
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
@@ -336,26 +323,27 @@ def main():
     style = vtk.vtkInteractorStyleTrackballCamera()
     render_window_interactor.SetInteractorStyle(style)
 
-    # Create a point picker and add the terrain_actor to the pick list
+    # Create a point picker and add the map_actor to the pick list
     picker = vtk.vtkPointPicker()
     picker.PickFromListOn()
-    picker.AddPickList(terrain_actor)
+    picker.AddPickList(map_actor)
 
     renderer.AddActor(altitude_strip_actor)
 
     def update_altitude_text(obj, event):
         click_pos = obj.GetInteractor().GetEventPosition()
 
-        # Pick the point on the terrain_actor under the mouse position
+        # Pick the point on the map_actor under the mouse position
         picker.Pick(click_pos[0], click_pos[1], 0, renderer)
 
         # Get the picked actor
         picked_actor = picker.GetActor()
 
-        # If the picked actor is the terrain
+        # If the picked actor is the map
         if picked_actor:
             # Retrieve the altitude of the picked point
-            altitude = picker.GetDataSet().GetPointData().GetScalars().GetValue(picker.GetPointId())
+            altitude = picker.GetDataSet().GetPointData(
+            ).GetScalars().GetValue(picker.GetPointId())
 
             # Update the text actor
             altitude_text_actor.SetInput(f"Altitude: {altitude}m")
