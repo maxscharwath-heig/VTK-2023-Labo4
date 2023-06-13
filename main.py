@@ -1,7 +1,8 @@
-import vtk
 import math
+
 import numpy as np
 import pyproj
+import vtk
 from pyproj import Transformer
 from vtkmodules.vtkCommonColor import vtkNamedColors
 
@@ -15,7 +16,12 @@ wgs84_to_ecef = Transformer.from_crs(wgs84, ecef)
 
 
 def to_vtk_point(altitude, latitude, longitude):
+    """
+    Convert latitude, longitude, altitude to a point in the VTK coordinate system.
+    """
     coordinate_transform = vtk.vtkTransform()
+
+    # Rotate the coordinate transform and translate it to the correct altitude
     coordinate_transform.RotateY(longitude)
     coordinate_transform.RotateX(-latitude)
     coordinate_transform.Translate(0, 0, c.EARTH_RADIUS + altitude)
@@ -24,6 +30,9 @@ def to_vtk_point(altitude, latitude, longitude):
 
 
 def quadrilateral_interpolation_factors(bounds):
+    """
+    Calculate the factors for quadrilateral interpolation.
+    """
     interpolation_matrix = np.array(
         [[1, 0, 0, 0], [-1, 1, 0, 0], [-1, 0, 0, 1], [1, -1, 1, -1]])
 
@@ -35,22 +44,28 @@ def quadrilateral_interpolation_factors(bounds):
 
 
 def quadrilateral_interpolation(x, y, a, b):
+    """
+    Perform quadrilateral interpolation.
+    """
     aa = a[3] * b[2] - a[2] * b[3]
 
     bb = a[3] * b[0] - a[0] * b[3] + a[1] * \
-        b[2] - a[2] * b[1] + x * b[3] - y * a[3]
+         b[2] - a[2] * b[1] + x * b[3] - y * a[3]
 
     cc = a[1] * b[0] - a[0] * b[1] + x * b[1] - y * a[1]
 
+    # Solve quadratic equation
     det = math.sqrt(bb ** 2 - 4 * aa * cc)
     m = (-bb - det) / (2 * aa)
-
     l = (x - a[0] - a[2] * m) / (a[1] + a[3] * m)
 
     return l, m
 
 
 def bounding_box(coords):
+    """
+    Find the bounding box of a set of coordinates.
+    """
     smallest_latitude = coords[:, 0].min()  # Bottom
     biggest_latitude = coords[:, 0].max()  # Top
     smallest_longitude = coords[:, 1].min()  # Left
@@ -114,7 +129,7 @@ def extract_glider_data(filename):
 
 def create_map_actor():
     wsg84_corners = np.array([rt90_to_wgs84.transform(x, y)
-                             for y, x in c.BOUNDING_COORDS])
+                              for y, x in c.BOUNDING_COORDS])
 
     alphas, betas = quadrilateral_interpolation_factors(wsg84_corners)
 
@@ -147,7 +162,6 @@ def create_map_actor():
             # For each longitude, is it in the bounding box of the area to display?
             for j, altitude in enumerate(row):
                 if smallest_longitude <= longitudes[j] <= biggest_longitude:
-
                     # At this point, the lat, long pair is inside the bounding box of the area to display,
                     # so we add it to the structured grid.
                     points.InsertNextPoint(to_vtk_point(
@@ -269,7 +283,7 @@ def make_altitude_text_actor():
     altitude_actor.GetTextProperty().SetColor(0, 0, 0)
     altitude_actor.GetTextProperty().SetBackgroundColor(1, 1, 1)
     altitude_actor.GetTextProperty().SetBackgroundOpacity(1)
-    altitude_actor.SetInput("")
+    altitude_actor.SetInput("Yolo")
     altitude_actor.GetTextProperty().SetFontSize(20)
     altitude_actor.SetPosition((40, 40))
 
@@ -279,13 +293,13 @@ def make_altitude_text_actor():
 def main():
     colors = vtkNamedColors()
     terrain_actor = create_map_actor()
-    # glider_path_actor = make_glider_path_actor()
-    # altitude_text_actor = make_altitude_text_actor()
+    glider_path_actor = make_glider_path_actor()
+    altitude_text_actor = make_altitude_text_actor()
 
     renderer = vtk.vtkRenderer()
     renderer.AddActor(terrain_actor)
-    # renderer.AddActor(glider_path_actor)
-    # renderer.AddActor(altitude_text_actor)
+    renderer.AddActor(glider_path_actor)
+    renderer.AddActor(altitude_text_actor)
     renderer.SetBackground(colors.GetColor3d("White"))
 
     render_window = vtk.vtkRenderWindow()
@@ -294,6 +308,39 @@ def main():
 
     render_window_interactor = vtk.vtkRenderWindowInteractor()
     render_window_interactor.SetRenderWindow(render_window)
+
+    # Add an interactor style with a callback to handle the event
+    style = vtk.vtkInteractorStyleTrackballCamera()
+    render_window_interactor.SetInteractorStyle(style)
+
+    # Create a point picker and add the terrain_actor to the pick list
+    picker = vtk.vtkPointPicker()
+    picker.PickFromListOn()
+    picker.AddPickList(terrain_actor)
+
+    def update_altitude_text(obj, event):
+        click_pos = obj.GetInteractor().GetEventPosition()
+
+        # Pick the point on the terrain_actor under the mouse position
+        picker.Pick(click_pos[0], click_pos[1], 0, renderer)
+
+        # Get the picked actor
+        picked_actor = picker.GetActor()
+
+        # If the picked actor is the terrain
+        if picked_actor:
+            # Retrieve the altitude of the picked point
+            altitude = picker.GetDataSet().GetPointData().GetScalars().GetValue(picker.GetPointId())
+
+            # Update the text actor
+            altitude_text_actor.SetInput(f"Altitude: {altitude}m")
+
+            # Render the updated text
+            render_window.Render()
+
+        obj.OnMouseMove()
+
+    style.AddObserver("MouseMoveEvent", update_altitude_text)
 
     render_window_interactor.Initialize()
     render_window.Render()
