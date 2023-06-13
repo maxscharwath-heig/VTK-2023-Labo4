@@ -50,7 +50,7 @@ def quadrilateral_interpolation(x, y, a, b):
     aa = a[3] * b[2] - a[2] * b[3]
 
     bb = a[3] * b[0] - a[0] * b[3] + a[1] * \
-        b[2] - a[2] * b[1] + x * b[3] - y * a[3]
+         b[2] - a[2] * b[1] + x * b[3] - y * a[3]
 
     cc = a[1] * b[0] - a[0] * b[1] + x * b[1] - y * a[1]
 
@@ -124,7 +124,7 @@ def extract_glider_data(filename):
 
 def create_map_actor():
     wsg84_corners = np.array([rt90_to_wgs84.transform(x, y)
-                             for y, x in c.BOUNDING_COORDS])
+                              for y, x in c.BOUNDING_COORDS])
 
     alphas, betas = quadrilateral_interpolation_factors(wsg84_corners)
 
@@ -158,7 +158,6 @@ def create_map_actor():
             for j, altitude in enumerate(row):
                 # Check if the longitude of the column is inside the bounding box
                 if smallest_longitude <= longitudes[j] <= biggest_longitude:
-
                     points.InsertNextPoint(
                         to_vtk_point(
                             altitude, latitudes[i], longitudes[j])
@@ -185,10 +184,10 @@ def create_map_actor():
     map_implicit = vtk.vtkImplicitBoolean()
     map_implicit.SetOperationTypeToUnion()
 
-    lenCorners = len(wsg84_corners)
-    for i in range(lenCorners):
+    len_corners = len(wsg84_corners)
+    for i in range(len_corners):
         map_implicit.AddFunction(
-            clipping_plane(wsg84_corners[i], wsg84_corners[(i + 1) % lenCorners]))
+            clipping_plane(wsg84_corners[i], wsg84_corners[(i + 1) % len_corners]))
 
     # Clipped map
     map_clipped = vtk.vtkClipDataSet()
@@ -260,11 +259,6 @@ def make_glider_path_actor():
 
 
 def make_altitude_text_actor():
-    """
-    Creates the text actor that will display the intersected altitude.
-    We set a white background to make it easy to read even on top of the map.
-    :return: A text actor.
-    """
     altitude_actor = vtk.vtkTextActor()
     altitude_actor.GetTextProperty().SetColor(0, 0, 0)
     altitude_actor.GetTextProperty().SetBackgroundColor(1, 1, 1)
@@ -298,7 +292,7 @@ def make_altitude_strip(map_actor):
     return altitude_strip_actor, tube_filter, sphere
 
 
-def load_glider_model():
+def create_plane_actor(initial_position):
     reader = vtk.vtkOBJReader()
     reader.SetFileName("plane.obj")
     reader.Update()
@@ -308,6 +302,13 @@ def load_glider_model():
 
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
+
+    # Set the initial position of the glider
+    x, y, altitude = initial_position
+    lat, long = rt90_to_wgs84.transform(y, x)
+    x, y, z = to_vtk_point(altitude, lat, long)
+    actor.SetPosition(x, y, z)
+    actor.SetScale(4, 4, 4)
 
     return actor
 
@@ -329,7 +330,7 @@ class GliderAnimator:
         x1, y1, altitude1 = self.path[index - 1]
         x2, y2, altitude2 = self.path[index]
         altitude = altitude1 + (altitude2 - altitude1) * \
-            (self.path_position - index)
+                   (self.path_position - index)
         lat, long = rt90_to_wgs84.transform(
             y1 + (y2 - y1) * (self.path_position - index),
             x1 + (x2 - x1) * (self.path_position - index)
@@ -360,14 +361,7 @@ def main():
         map_actor)
     altitude_strip_actor, tube_filter, sphere = make_altitude_strip(
         terrain_actor)
-    glider_actor = load_glider_model()
-
-    # Set the initial position of the glider
-    x, y, altitude = glider_path[0]
-    lat, long = rt90_to_wgs84.transform(y, x)
-    x, y, z = to_vtk_point(altitude, lat, long)
-    glider_actor.SetPosition(x, y, z)
-    glider_actor.SetScale(4, 4, 4)
+    glider_actor = create_plane_actor(glider_path[0])
 
     renderer = vtk.vtkRenderer()
     renderer.AddActor(map_actor)
@@ -375,7 +369,6 @@ def main():
     renderer.AddActor(altitude_text_actor)
     renderer.SetBackground(colors.GetColor3d("Wheat"))
     renderer.AddActor(glider_actor)
-    renderer.SetBackground(colors.GetColor3d("White"))
 
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
@@ -420,6 +413,11 @@ def main():
             tube_filter.Update()
 
             # Render the updated text
+            render_window.Render()
+        else:
+            altitude_text_actor.SetInput("Altitude: -")
+            sphere.SetRadius(c.EARTH_RADIUS)
+            tube_filter.Update()
             render_window.Render()
 
         obj.OnMouseMove()
