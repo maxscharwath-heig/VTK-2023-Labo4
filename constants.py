@@ -17,3 +17,12 @@ LAT_STEP = (LAT_MAX - LAT_MIN) / GRID_SIZE
 LON_STEP = (LON_MAX - LON_MIN) / GRID_SIZE
 
 EARTH_RADIUS = 6371000
+
+# Glider path
+G_TUBE_SIZE = 25
+G_TUBE_COLORS_RANGE = (-5, 5)
+GLIDER_SCALE = (4, 4, 4)
+GLIDER_OBJ_PATH = "plane.obj"
+
+# Altitudes interactor
+A_TUBE_SIZE = 40
